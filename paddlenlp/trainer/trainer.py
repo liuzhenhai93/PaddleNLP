@@ -2491,12 +2491,14 @@ class Trainer:
         def reshard_pp(model_state):
             # pp reshard
             if self._need_reshard_pp(checkpoint):
+                logger.info("pp reshard optimizer state")
                 meta = self._load_model_meta(checkpoint)
                 reshard_context = pp_reshard.build_pipeline_context(meta, self.model_wrapped)
                 model_state = pp_reshard.reshard(model_state, reshard_context, self.hcg)
             return model_state
 
         def reshard_sharding(node_model_state):
+            logger.info("sharding reshard optimizer state")
             # shard reshard
             restore_func = (
                 reshard_util.sharding_v1.restore
