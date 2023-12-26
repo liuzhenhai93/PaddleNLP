@@ -29,8 +29,6 @@ from .modeling import (
     LlamaPretrainingCriterion,
     LlamaRMSNorm,
     build_alibi_tensor,
-    concat_dp,
-    concat_mp
 )
 
 
@@ -116,11 +114,7 @@ class LlamaEmbeddingPipe(nn.Layer):
             _type_: _description_
         """
         input_ids, attention_mask, position_ids, alibi = parse_args(args)
-        #input_ids_tmp = concat_dp(input_ids)
-        #print(f"inputs_ids shape: {input_ids_tmp.shape} md5sum: {input_ids_tmp._md5sum()}")
         input_embeds = self.embed_tokens(input_ids)
-        input_embeds_tmp = concat_dp(input_embeds)
-        print(f"inputs_embeds shape: {input_embeds_tmp.shape} md5sum: {input_embeds_tmp._md5sum()}")
         if self.sequence_parallel:
             from paddlenlp.transformers import ScatterOp
 
@@ -196,10 +190,14 @@ class LlamaDecoderLayerPipe(LlamaDecoderLayer):
         return return_args(hidden_states, attention_mask, position_ids, alibi)
 
 
-class LlamaRMSNormPipe(LlamaRMSNorm):
+class LlamaRMSNormPipe(nn.Layer):
+    def __init__(self, config):
+        super().__init__()
+        self.norm = LlamaRMSNorm(config)
+
     def forward(self, args):
         hidden_states, attention_mask, position_ids, alibi = parse_args(args)
-        return super().forward(hidden_states)
+        return self.norm(hidden_states)
 
 
 class LlamaForCausalLMPipe(PipelinePretrainedModel, PipelineLayer):
@@ -243,10 +241,10 @@ class LlamaForCausalLMPipe(PipelinePretrainedModel, PipelineLayer):
         self.add_sequential_layer(LayerDesc(LlamaEmbeddingPipe, config=config), "llama")
         for i in range(config.num_hidden_layers):
             self.add_sequential_layer(
-                LayerDesc(LlamaDecoderLayerPipe, config=config, layerwise_recompute=i not in self.no_recompute_layers, index=i),
+                LayerDesc(LlamaDecoderLayerPipe, config=config, layerwise_recompute=i not in self.no_recompute_layers),
                 f"llama.layers.{i}",
             )
-        self.add_sequential_layer(LayerDesc(LlamaRMSNormPipe, config=config), "llama.norm")
+        self.add_sequential_layer(LayerDesc(LlamaRMSNormPipe, config=config), "llama")
         self.add_sequential_layer(LayerDesc(LlamaLMHead, config=config), "lm_head")
 
         recompute_interval = 0
@@ -273,4 +271,3 @@ class LlamaForCausalLMPipe(PipelinePretrainedModel, PipelineLayer):
         self.apply(self._init_weights)
         # DON'T init PipelinePretrainedModel
         # PipelinePretrainedModel.__init__(self.super(), config=config)
-
