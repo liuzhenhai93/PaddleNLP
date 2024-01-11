@@ -50,7 +50,7 @@ python3.8 -u  -m paddle.distributed.launch \
     --per_device_eval_batch_size 2 \
     --gradient_accumulation_steps 2 \
     --use_flash_attention 0 \
-    --use_fused_rms_norm 0 \
+    --use_fused_rms_norm 1 \
     --fp16 0 \
     --fp16_opt_level "O2"  \
     --scale_loss 1024 \
