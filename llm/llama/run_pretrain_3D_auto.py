@@ -473,7 +473,7 @@ def main():
     print("======M M M M======", model_class)
     model = model_class._from_config(config, dtype=dtype)
     # load model
-    load_model(model)
+    # load_model(model)
     shard_model(model)
     # Create the learning_rate sheduler and optimizer
     if training_args.decay_steps is None:
