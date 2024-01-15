@@ -611,51 +611,6 @@ def main():
 
             global_step += 1
 
-    """
-    for epoch_idx in range(num_train_epochs):
-        for step, inputs in enumerate(train_dataloader):
-            print(inputs.keys())
-            print(1/0)
-            outs = engine.run(inputs, mode="train")
-
-            if "loss" in outs:
-                tr_loss_step = np.sum(outs["loss"])
-            else:
-                tr_loss_step = float(0)
-
-            if training_args.gradient_accumulation_steps > 1:
-                tr_loss_step /= training_args.gradient_accumulation_steps
-
-            tr_loss += tr_loss_step
-
-            if lr_scheduler is not None:
-                engine.optimizer._learning_rate.step()
-
-            global_step += 1
-            if (step + 1) % training_args.logging_steps == 0:
-                num_steps = global_step - global_step_last_logged
-                logs = {}
-                logs["loss"] = round(tr_loss / num_steps, 8)
-                logs["learning_rate"] = float("{0:.3e}".format(engine.optimizer.get_lr()))
-                logs["global_step"] = int(global_step)
-                logs.update(
-                    speed_metrics(
-                        split="interval",
-                        start_time=start_time_last_logged,
-                        num_samples=total_train_batch_size * num_steps,
-                        num_steps=num_steps,
-                    )
-                )
-                logger.info(", ".join(f"{k}: {v}" for k, v in logs.items()))
-
-                global_step_last_logged = global_step
-                start_time_last_logged = time.time()
-                tr_loss = float(0)
-
-            if step >= training_args.max_steps:
-                break
-    """
-
 
 def shard_model(model):
     pp_stage = 0

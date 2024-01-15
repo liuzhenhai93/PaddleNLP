@@ -46,14 +46,6 @@ from paddlenlp.transformers import (
 )
 from paddlenlp.utils.log import logger
 
-# from paddlenlp.transformers import (
-#    AutoTokenizer,
-#    CosineAnnealingWithWarmupDecay,
-#    LinearAnnealingWithWarmupDecay,
-#    LlamaConfig,
-#    LlamaForCausalLMPipe
-# )
-
 
 def add_start_docstrings(*docstr):
     def docstring_decorator(fn):
