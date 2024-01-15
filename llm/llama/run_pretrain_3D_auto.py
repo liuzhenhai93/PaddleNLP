@@ -23,10 +23,7 @@ from typing import List, Optional
 
 import numpy as np
 import paddle
-import paddle.autograd as imperative_base
 import paddle.distributed as dist
-from paddle import _C_ops
-from paddle.base import core
 from paddle.distributed import fleet
 from paddle.io import DataLoader, DistributedBatchSampler
 
@@ -46,8 +43,6 @@ MODEL_CLASSES = {
 
 
 from collections import OrderedDict
-
-from paddle.framework import in_dynamic_mode
 
 from paddlenlp.data.causal_dataset import (
     build_train_valid_test_datasets,
@@ -84,6 +79,10 @@ class PreTrainingArguments(TrainingArguments):
         },
     )
     parallel_mode: str = field(default="hybrid", metadata={"help": ""})
+
+    pipeline_schedule_mode: str = field(
+        default="1F1B", metadata={"help": "The pipeline schedule mode, support FThenB, 1F1B, VPP and Eager-1F1B."}
+    )
 
 
 @dataclass
@@ -197,119 +196,6 @@ class ModelArguments:
         default=False,
         metadata={"help": "recompute_use_reentrant"},
     )
-
-
-class AutoClipGradByGlobalNorm(paddle.nn.ClipGradByGlobalNorm):
-    def __init__(self, clip_norm):
-        super().__init__(clip_norm)
-        pp_group = None
-        if "pp" in fleet.auto.get_mesh().dim_names:
-            global_mesh = fleet.auto.get_mesh().get_mesh_with_dim("dp").mesh
-            mesh_shape = global_mesh.shape
-            for id in range(mesh_shape[0]):
-                dp0_mesh = global_mesh[id]
-                for i in range(dp0_mesh.shape[-1]):
-                    ranks = dp0_mesh[:, i]
-                    print("pp ranks: ", ranks)
-                    group = dist.new_group(ranks)
-                    if dist.get_rank() in ranks:
-                        pp_group = group
-            assert pp_group is not None
-        self.pp_group = pp_group
-
-    @imperative_base.no_grad()
-    def _dygraph_clip(self, params_grads):
-        params_and_grads = []
-        sum_square_list = []
-        sum_square_list_fp16 = []
-        sum_square_list_fp32 = []
-        for p, g in params_grads:
-            if g is None:
-                continue
-            if getattr(p, "need_clip", True) is False:
-                continue
-            merge_grad = g
-
-            if in_dynamic_mode() and g.is_selected_rows():
-                assert False, "not suppored"
-
-            elif g.type == core.VarDesc.VarType.SELECTED_ROWS:
-                assert False, "not suppored"
-
-            sum_square = _C_ops.squared_l2_norm(merge_grad)
-            if sum_square.dtype == core.VarDesc.VarType.FP16 or sum_square.dtype == core.VarDesc.VarType.BF16:
-                sum_square_list_fp16.append(sum_square)
-            elif sum_square.dtype == core.VarDesc.VarType.FP32:
-                sum_square_list_fp32.append(sum_square)
-            else:
-                sum_square_list.append(sum_square)
-
-        # all parameters have been filterd out
-        if len(sum_square_list) + len(sum_square_list_fp16) + len(sum_square_list_fp32) == 0:
-            return params_grads
-
-        def async_add_n(var_list):
-            return paddle.stack(var_list).sum()
-
-        sum_dtype = "float64" if len(sum_square_list) > 0 else "float32"
-        global_norm_var = []
-        if len(sum_square_list_fp16) > 0:
-            global_norm_var_fp16 = async_add_n(sum_square_list_fp16)
-            if self.pp_group is not None:
-                # sync pp
-                global_norm_var_fp16 = paddle.to_tensor(global_norm_var_fp16.numpy())
-                paddle.distributed.all_reduce(global_norm_var_fp16, group=self.pp_group)
-            global_norm_var.append(global_norm_var_fp16.astype(sum_dtype))
-        if len(sum_square_list_fp32) > 0:
-            global_norm_var_fp32 = async_add_n(sum_square_list_fp32)
-
-            if self.pp_group is not None:
-                # sync pp
-                global_norm_var_fp32 = paddle.to_tensor(global_norm_var_fp32.numpy())
-                paddle.distributed.all_reduce(global_norm_var_fp32, group=self.pp_group)
-
-            if sum_dtype == "float32":
-                global_norm_var.append(global_norm_var_fp32)
-            else:
-                global_norm_var.append(global_norm_var_fp32.astype(sum_dtype))
-        if len(sum_square_list) > 0:
-            global_norm_var_fp64 = async_add_n(sum_square_list)
-            if self.pp_group is not None:
-                # sync pp
-                global_norm_var_fp32 = paddle.to_tensor(global_norm_var_fp64.numpy())
-                paddle.distributed.all_reduce(global_norm_var_fp64, group=self.pp_group)
-            global_norm_var.append(global_norm_var_fp64)
-        global_norm_var = async_add_n(global_norm_var)
-        global_norm_var = paddle.sqrt(global_norm_var)
-        max_global_norm = paddle.full(shape=[], dtype=global_norm_var.dtype, fill_value=self.clip_norm)
-
-        need_clip = False
-        if not self.auto_skip_clip:  # always apply clip
-            need_clip = True
-            clip_var = paddle.divide(
-                x=max_global_norm,
-                y=paddle.maximum(x=global_norm_var, y=max_global_norm),
-            )
-        elif global_norm_var > max_global_norm:
-            # only when global_norm_var > max_global_norm, grad need clip
-            need_clip = True
-            clip_var = paddle.divide(x=max_global_norm, y=global_norm_var)
-
-        for p, g in params_grads:
-            if g is None:
-                continue
-            if getattr(p, "need_clip", True) is False:
-                params_and_grads.append((p, g))
-                continue
-            # TODO(wangxi): use inplace elementwise_mul
-            if need_clip:
-                clip_input = clip_var.astype(g.dtype) if clip_var.dtype != g.dtype else clip_var
-                new_grad = paddle.multiply(g, clip_input)
-                params_and_grads.append((p, new_grad))
-            else:
-                params_and_grads.append((p, g))
-
-        return params_and_grads
 
 
 def create_pretrained_dataset(
@@ -429,7 +315,9 @@ def create_optimizer(model, lr_scheduler, training_args):
         apply_decay_param_fun=apply_decay_param_fun,
         parameters=model.parameters(),
         weight_decay=training_args.weight_decay,
-        grad_clip=AutoClipGradByGlobalNorm(training_args.max_grad_norm) if training_args.max_grad_norm > 0 else None,
+        grad_clip=paddle.nn.ClipGradByGlobalNorm(training_args.max_grad_norm)
+        if training_args.max_grad_norm > 0
+        else None,
         **optimizer_kwargs,
     )
 
@@ -620,8 +508,6 @@ def main():
     )
 
     optimizer = create_optimizer(model, lr_scheduler, training_args)
-    for (k, v) in model.named_parameters():
-        print(f"named_parameters {k} => {v.name}")
 
     def loss_func(loss, outputs):
         return loss

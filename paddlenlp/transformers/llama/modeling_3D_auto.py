@@ -216,7 +216,9 @@ class LlamaRMSNormAuto(nn.Layer):
 
     def forward(self, hidden_states):
         if self.config.use_fused_rms_norm:
-            return rms_norm_fused(hidden_states, self.weight, self.variance_epsilon)
+            tmp = rms_norm_fused(hidden_states, self.weight, self.variance_epsilon)
+            print(f"rms {tmp.placements}")
+            return tmp
 
         if paddle.in_dynamic_mode():
             variance = hidden_states.astype("float32").pow(2).mean(-1, keepdim=True)
@@ -456,7 +458,6 @@ class LlamaAttentionAuto(nn.Layer):
             kv_seq_len += past_key_value[0].shape[-3]
 
         if self.config.rope:
-            print("rope")
             if self.use_fused_rope:
                 assert past_key_value is None, "fuse rotary not support cache kv for now"
                 cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
