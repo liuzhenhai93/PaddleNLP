@@ -25,7 +25,7 @@ rm -rf output/$task_name/
 rm -rf "output/$task_name""_log"
 
 export SOT_LOG_LEVEL=4
-export PYTHONPATH=../../:$PYTHONPATH
+export PYTHONPATH=../../../:$PYTHONPATH
 #ulimit -c unlimited
 #export GLOG_v=10
 

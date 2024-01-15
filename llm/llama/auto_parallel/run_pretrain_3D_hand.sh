@@ -24,7 +24,7 @@ rm -rf output/$task_name/
 rm -rf "output/$task_name""_log"
 
 export SOT_LOG_LEVEL=4
-export PYTHONPATH=../../:$PYTHONPATH
+export PYTHONPATH=../../../:$PYTHONPATH
 #ulimit -c unlimited
 #export GLOG_v=10
 export CUDA_VISIBLE_DEVICES="0,1,2,3,4,5,6,7"
