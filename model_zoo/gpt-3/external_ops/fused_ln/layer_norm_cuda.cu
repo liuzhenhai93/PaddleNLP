@@ -221,9 +221,9 @@ PD_BUILD_OP(fused_rms_norm)
     .SetKernelFn(PD_KERNEL(RMSLnFwd))
     .SetInferShapeFn(PD_INFER_SHAPE(RMSLnFwdInferShape))
     .SetInferDtypeFn(PD_INFER_DTYPE(RMSLnFwdInferDtype))
-    #ifdef CUSTOM_OP_WITH_SPMD
+#ifdef CUSTOM_OP_WITH_SPMD
     .SetInferSpmdFn(PD_INFER_SPMD_RULE(phi::distributed::RmsNormInferSpmd))
-    #endif
+#endif
     ;
 
 PD_BUILD_GRAD_OP(fused_rms_norm)
@@ -232,9 +232,9 @@ PD_BUILD_GRAD_OP(fused_rms_norm)
     .Attrs({"epsilon: float"})
     .SetKernelFn(PD_KERNEL(RMSLnBwd))
     .SetInferShapeFn(PD_INFER_SHAPE(RMSLnBwdInferShape))
-    #ifdef CUSTOM_OP_WITH_SPMD
+#ifdef CUSTOM_OP_WITH_SPMD
     .SetInferSpmdFn(PD_INFER_SPMD_RULE(phi::distributed::RmsNormGradInferSpmd))
-    #endif
+#endif
     ;
 
 
